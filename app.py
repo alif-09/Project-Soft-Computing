@@ -142,7 +142,7 @@ if st.button("Prediksi"):
             label_map = {
                 0: "Lulus Cepat (3.5 tahun)",
                 1: "Tepat Waktu (4 tahun)", 
-                2: "Terlambat (4.5-5 tahun)",
+                2: "Terlambat (4.5-7 tahun)",
                 3: "Drop Out"
             }
             
@@ -168,6 +168,6 @@ Model ANFIS ini memprediksi kategori lama studi berdasarkan:
 **Kategori Output:**
 1. Lulus Cepat (3.5 tahun)
 2. Tepat Waktu (4 tahun)
-3. Terlambat (4.5-5 tahun) 
+3. Terlambat (4.5-7 tahun) 
 4. Drop Out
 """)
