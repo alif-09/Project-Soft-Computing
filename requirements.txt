@@ -1,8 +1,8 @@
 streamlit
 numpy
 pandas
-scikit-fuzzy
 scikit-learn
 tensorflow==2.18.0
-h5py
+scikit-fuzzy
 networkx
+joblib

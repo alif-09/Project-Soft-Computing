@@ -2,27 +2,76 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import tensorflow as tf
-from fuzzy_utils import apply_fuzzy_and_defuzzy
-from data_preparation import prepare_fuzzy_input_for_prediction, prepare_defuzzy_input
+from sklearn.preprocessing import MinMaxScaler
+from joblib import load
+import os
 
-# Load model
-model_fuzzy = tf.keras.models.load_model("fuzzy_cnn_model.h5")
-model_defuzzy = tf.keras.models.load_model("cnn_model_fuzzy_defuzzy.h5")
+# Disable eager execution for TF1 compatibility
+tf.compat.v1.disable_eager_execution()
 
-# (Opsional) Simpan akurasi model (misalnya sudah kamu catat saat training)
-model_fuzzy_accuracy = 0.92  # 92% contoh
-model_defuzzy_accuracy = 0.89  # 89% contoh
+@st.cache_resource
+def load_model():
+    try:
+        sess = tf.compat.v1.Session()
+        
+        # Path to the model directory
+        model_dir = "anfis_model"
+        
+        # Verify model files exist
+        if not os.path.exists(model_dir):
+            st.error(f"Model folder not found at: {os.path.abspath(model_dir)}")
+            return None, None
+            
+        # Load the saved model
+        meta_graph_def = tf.compat.v1.saved_model.loader.load(sess, ["serve"], model_dir)
+        
+        # Get input and output tensors
+        graph = tf.compat.v1.get_default_graph()
+        
+        # Get the correct tensor names - adjust these based on your model
+        inputs = graph.get_tensor_by_name('inputs:0')
+        pred_class = graph.get_tensor_by_name('ArgMax:0')
+        
+        return sess, inputs, pred_class
+    except Exception as e:
+        st.error(f"Failed to load model: {str(e)}")
+        return None, None, None
 
-# UI
-st.title("Prediksi Kategori Lama Studi Mahasiswa (CNN + Fuzzy)")
+# Load scaler
+@st.cache_resource
+def load_scaler():
+    try:
+        return load('scaler.joblib')
+    except:
+        st.warning("Using dummy scaler (predictions may be inaccurate)")
+        scaler = MinMaxScaler()
+        # Initialize with zeros (better than random for this case)
+        dummy_data = pd.DataFrame(np.zeros((1, 27)), columns=[
+            'IP_Semester_1', 'IP_Semester_2', 'IP_Semester_3', 'IP_Semester_4', 
+            'IP_Semester_5', 'IP_Semester_6', 'SKS_Lulus_Semester_1', 
+            'SKS_Lulus_Semester_2', 'SKS_Lulus_Semester_3', 'SKS_Lulus_Semester_4', 
+            'SKS_Lulus_Semester_5', 'SKS_Lulus_Semester_6', 'MK_Ulang_Semester_1', 
+            'MK_Ulang_Semester_2', 'MK_Ulang_Semester_3', 'MK_Ulang_Semester_4', 
+            'MK_Ulang_Semester_5', 'MK_Ulang_Semester_6', 'Total_SKS_Selesai_Semester_1', 
+            'Total_SKS_Selesai_Semester_2', 'Total_SKS_Selesai_Semester_3', 
+            'Total_SKS_Selesai_Semester_4', 'Total_SKS_Selesai_Semester_5', 
+            'Total_SKS_Selesai_Semester_6', 'Total_SKS_Tidak_Lulus', 
+            'Kehadiran_Persen', 'Ketepatan_Tugas_Persen'
+        ])
+        scaler.fit(dummy_data)
+        return scaler
+
+# UI Setup
+st.title("Prediksi Kategori Lama Studi Mahasiswa (ANFIS)")
 st.header("Masukkan Data Mahasiswa")
 
+# Initialize input storage
 ip = []
 sks_lulus = []
 mk_ulang = []
 valid_input = True
 
-# Input per semester
+# Semester inputs
 for i in range(1, 7):
     st.markdown(f"### Semester {i}")
     col1, col2, col3 = st.columns(3)
@@ -40,18 +89,18 @@ for i in range(1, 7):
         mk_ulang.append(mk_val)
 
     if sks_val + mk_val > 24:
-        st.error(f"Jumlah SKS Lulus + MK Tidak Lulus di Semester {i} melebihi 24! Periksa kembali.")
+        st.error(f"Total SKS di Semester {i} melebihi 24!")
         valid_input = False
 
-# Input tambahan
+# Additional inputs
 kehadiran = st.number_input("Kehadiran (%)", min_value=0.0, max_value=100.0, value=85.0, step=0.1)
 tugas = st.number_input("Ketepatan Tugas (%)", min_value=0.0, max_value=100.0, value=75.0, step=0.1)
 
-# Hitung fitur tambahan
+# Calculate derived features
 total_sks_selesai = np.cumsum(sks_lulus)
 total_sks_tidak_lulus = sum(mk_ulang)
 
-# Buat dataframe input
+# Create input dataframe
 data_dict = {
     **{f"IP_Semester_{i+1}": ip[i] for i in range(6)},
     **{f"SKS_Lulus_Semester_{i+1}": sks_lulus[i] for i in range(6)},
@@ -63,54 +112,62 @@ data_dict = {
 }
 df_input = pd.DataFrame([data_dict])
 
-# Tampilkan df awal
+# Display raw input
 st.subheader("Data Awal (Numerik)")
 st.dataframe(df_input)
 
-# Tombol Fuzzifikasi
-if st.button("Fuzzifikasi"):
-    if valid_input:
-        df_fuzzy, df_defuzzy = apply_fuzzy_and_defuzzy(df_input)
-        st.session_state.df_fuzzy = df_fuzzy
-        st.session_state.df_defuzzy = df_defuzzy
+# Load and scale data
+scaler = load_scaler()
+X_scaled = scaler.transform(df_input)
 
-        st.subheader("Hasil Fuzzifikasi (μ)")
-        st.dataframe(df_fuzzy)
-
-        st.subheader("Hasil Defuzzifikasi")
-        defuzzy_cols = [col for col in df_defuzzy.columns if col.startswith("Defuzz_")]
-        st.dataframe(df_defuzzy[defuzzy_cols])
-    else:
-        st.warning("Perbaiki input dulu sebelum melakukan fuzzifikasi.")
-
-# Tombol Prediksi
+# Prediction section
 if st.button("Prediksi"):
     if not valid_input:
-        st.warning("Perbaiki input dulu sebelum melakukan prediksi.")
-    elif 'df_fuzzy' not in st.session_state or 'df_defuzzy' not in st.session_state:
-        st.warning("Lakukan fuzzifikasi terlebih dahulu sebelum prediksi.")
+        st.warning("Perbaiki input terlebih dahulu!")
     else:
         try:
-            df_fuzzy = st.session_state.df_fuzzy
-            df_defuzzy = st.session_state.df_defuzzy
-
-            # Fuzzy CNN prediction
-            X_fuzzy_input = prepare_fuzzy_input_for_prediction(df_fuzzy)
-            pred_probs_fuzzy = model_fuzzy.predict(X_fuzzy_input)
-            pred_class_fuzzy = np.argmax(pred_probs_fuzzy, axis=1)[0]
-
-            # Defuzzy CNN prediction
-            X_defuzzy_input = prepare_defuzzy_input(df_defuzzy)
-            pred_probs_defuzzy = model_defuzzy.predict(X_defuzzy_input)
-            pred_class_defuzzy = np.argmax(pred_probs_defuzzy, axis=1)[0]
-
-            label_map = {0: "Lulus Cepat", 1: "Tepat Waktu", 2: "Terlambat", 3: "Drop Out"}
-
-            st.success(f"Prediksi (Fuzzy + CNN): {label_map.get(pred_class_fuzzy, 'Tidak diketahui')}")
-            st.info(f"Akurasi Model Fuzzy CNN: {model_fuzzy_accuracy * 100:.2f}%")
-
-            st.success(f"Prediksi (Defuzzy + CNN): {label_map.get(pred_class_defuzzy, 'Tidak diketahui')}")
-            st.info(f"Akurasi Model Defuzzy CNN: {model_defuzzy_accuracy * 100:.2f}%")
-
+            # Debug scaled input
+            st.subheader("Data setelah Scaling")
+            st.write(X_scaled)
+            
+            # Load model
+            sess, inputs, pred_class = load_model()
+            if sess is None:
+                st.error("Tidak dapat memuat model!")
+                st.stop()
+                
+            # Get prediction
+            prediction = sess.run(pred_class, feed_dict={inputs: X_scaled})
+            
+            label_map = {
+                0: "Lulus Cepat (3.5 tahun)",
+                1: "Tepat Waktu (4 tahun)", 
+                2: "Terlambat (4.5-5 tahun)",
+                3: "Drop Out"
+            }
+            
+            st.success(f"**Hasil Prediksi:** {label_map.get(prediction[0], 'Unknown')}")
+            
         except Exception as e:
-            st.error(f"Gagal prediksi: {e}")
+            st.error(f"Terjadi error: {str(e)}")
+            st.error("Pastikan:")
+            st.error("1. Model sudah terinstall dengan benar")
+            st.error("2. Format input sesuai dengan yang diharapkan model")
+
+# Model information
+st.markdown("---")
+st.subheader("Tentang Model")
+st.write("""
+Model ANFIS ini memprediksi kategori lama studi berdasarkan:
+- IPK per semester
+- SKS yang lulus
+- Mata kuliah yang diulang
+- Kehadiran
+- Ketepatan pengumpulan tugas
+
+**Kategori Output:**
+1. Lulus Cepat (3.5 tahun)
+2. Tepat Waktu (4 tahun)
+3. Terlambat (4.5-5 tahun) 
+4. Drop Out
+""")
