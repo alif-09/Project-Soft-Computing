@@ -6,7 +6,7 @@ from sklearn.preprocessing import MinMaxScaler
 from joblib import load
 import os
 
-# Disable eager execution for TF1 compatibility
+# mendisable eager execution untuk kompatibilitas dengan TensorFlow 1.x
 tf.compat.v1.disable_eager_execution()
 
 @st.cache_resource
@@ -14,21 +14,21 @@ def load_model():
     try:
         sess = tf.compat.v1.Session()
         
-        # Path to the model directory
+        # Path ke model
         model_dir = "anfis_model"
         
-        # Verify model files exist
+    
         if not os.path.exists(model_dir):
             st.error(f"Model folder not found at: {os.path.abspath(model_dir)}")
             return None, None
             
-        # Load the saved model
+        # load model yang sudah disimpan
         meta_graph_def = tf.compat.v1.saved_model.loader.load(sess, ["serve"], model_dir)
         
-        # Get input and output tensors
+        # mendapatkan default graph
         graph = tf.compat.v1.get_default_graph()
         
-        # Get the correct tensor names - adjust these based on your model
+        # mendapatkan tensor input dan output
         inputs = graph.get_tensor_by_name('inputs:0')
         pred_class = graph.get_tensor_by_name('ArgMax:0')
         
@@ -45,7 +45,7 @@ def load_scaler():
     except:
       
         scaler = MinMaxScaler()
-        # Initialize with zeros (better than random for this case)
+        # Inisialisasi scaler dengan dummy data
         dummy_data = pd.DataFrame(np.zeros((1, 27)), columns=[
             'IP_Semester_1', 'IP_Semester_2', 'IP_Semester_3', 'IP_Semester_4', 
             'IP_Semester_5', 'IP_Semester_6', 'SKS_Lulus_Semester_1', 
@@ -65,7 +65,7 @@ def load_scaler():
 st.title("Prediksi Kategori Lama Studi Mahasiswa (ANFIS)")
 st.header("Masukkan Data Mahasiswa")
 
-# Initialize input storage
+# inisialisasi input lists
 ip = []
 sks_lulus = []
 mk_ulang = []
@@ -92,15 +92,15 @@ for i in range(1, 7):
         st.error(f"Total SKS di Semester {i} melebihi 24!")
         valid_input = False
 
-# Additional inputs
+# input tambahan
 kehadiran = st.number_input("Kehadiran (%)", min_value=0.0, max_value=100.0, value=85.0, step=0.1)
 tugas = st.number_input("Ketepatan Tugas (%)", min_value=0.0, max_value=100.0, value=75.0, step=0.1)
 
-# Calculate derived features
+# hitung total SKS selesai
 total_sks_selesai = np.cumsum(sks_lulus)
 total_sks_tidak_lulus = sum(mk_ulang)
 
-# Create input dataframe
+# buat dictionary untuk input data
 data_dict = {
     **{f"IP_Semester_{i+1}": ip[i] for i in range(6)},
     **{f"SKS_Lulus_Semester_{i+1}": sks_lulus[i] for i in range(6)},
@@ -112,11 +112,11 @@ data_dict = {
 }
 df_input = pd.DataFrame([data_dict])
 
-# Display raw input
+# tampilkan data input
 st.subheader("Data Awal (Numerik)")
 st.dataframe(df_input)
 
-# Load and scale data
+# Load scaler dan transform input
 scaler = load_scaler()
 X_scaled = scaler.transform(df_input)
 
