@@ -43,7 +43,7 @@ def load_scaler():
     try:
         return load('scaler.joblib')
     except:
-        st.warning("Using dummy scaler (predictions may be inaccurate)")
+      
         scaler = MinMaxScaler()
         # Initialize with zeros (better than random for this case)
         dummy_data = pd.DataFrame(np.zeros((1, 27)), columns=[
